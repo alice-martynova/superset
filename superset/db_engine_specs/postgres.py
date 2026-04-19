@@ -814,12 +814,17 @@ WHERE datistemplate = false;
     @classmethod
     def cancel_query(cls, cursor: Any, query: Query, cancel_query_id: str) -> bool:
         """
-        Cancel query in the underlying database.
+        Cancel a running query on the underlying Postgres database.
 
-        :param cursor: New cursor instance to the db of the query
-        :param query: Query instance
-        :param cancel_query_id: Postgres PID
-        :return: True if query cancelled successfully, False otherwise
+        Terminates the backend process identified by ``cancel_query_id`` using
+        ``pg_terminate_backend``.
+
+        :param cursor: A cursor connected to the database where the query runs
+        :param query: The ``Query`` instance being cancelled
+        :param cancel_query_id: Postgres backend PID returned by
+            :meth:`get_cancel_query_id`
+        :return: ``True`` if the query was cancelled successfully, ``False``
+            if an error occurred
         """
         try:
             cursor.execute(
