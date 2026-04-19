@@ -24,6 +24,18 @@ assists people when migrating to a new version.
 
 ## Next
 
+### Startup refuses to boot with default secrets
+
+Superset now refuses to start when `SECRET_KEY`, `GUEST_TOKEN_JWT_SECRET`, or
+`GLOBAL_ASYNC_QUERIES_JWT_SECRET` still match their publicly-known default
+values shipped in the repository (`CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET`,
+`test-guest-secret-change-me`, and `test-secret-change-me`, respectively).
+These three secrets must be explicitly overridden in `superset_config.py` (or
+via environment variable where supported, e.g. `SUPERSET_SECRET_KEY`) before
+starting Superset in a non-debug, non-test environment. Debug and test modes
+continue to log a warning instead of aborting, matching prior behavior for
+`SECRET_KEY`.
+
 ### Granular Export Controls
 
 A new feature flag `GRANULAR_EXPORT_CONTROLS` introduces three fine-grained permissions that replace the legacy `can_csv` permission:
