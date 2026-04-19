@@ -3117,7 +3117,10 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
             if resource["type"] == GuestTokenResourceType.DASHBOARD.value:
                 # TODO (embedded): remove this check once uuids are rolled out
                 dashboard = Dashboard.get(str(resource["id"]))
-                if not dashboard:
+                if dashboard:
+                    if not dashboard.embedded:
+                        raise EmbeddedDashboardNotFoundError()
+                else:
                     embedded = EmbeddedDashboardDAO.find_by_id(str(resource["id"]))
                     if not embedded:
                         raise EmbeddedDashboardNotFoundError()
