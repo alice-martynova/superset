@@ -37,7 +37,11 @@ from flask_compress import Compress
 from flask_session import Session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from superset.constants import CHANGE_ME_SECRET_KEY
+from superset.constants import (
+    CHANGE_ME_GLOBAL_ASYNC_QUERIES_JWT_SECRET,
+    CHANGE_ME_GUEST_TOKEN_JWT_SECRET,
+    CHANGE_ME_SECRET_KEY,
+)
 from superset.databases.utils import make_url_safe
 from superset.extensions import (
     _event_logger,
@@ -641,18 +645,37 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             )
             logger.warning(bottom_banner)
 
-        if self.config["SECRET_KEY"] == CHANGE_ME_SECRET_KEY:
-            if (
-                self.superset_app.debug
-                or self.superset_app.config["TESTING"]
-                or is_test()
-            ):
-                logger.warning("Debug mode identified with default secret key")
-                log_default_secret_key_warning()
-                return
+        default_secrets = {
+            "SECRET_KEY": CHANGE_ME_SECRET_KEY,
+            "GUEST_TOKEN_JWT_SECRET": CHANGE_ME_GUEST_TOKEN_JWT_SECRET,
+            "GLOBAL_ASYNC_QUERIES_JWT_SECRET": (
+                CHANGE_ME_GLOBAL_ASYNC_QUERIES_JWT_SECRET
+            ),
+        }
+        insecure = [
+            name
+            for name, default in default_secrets.items()
+            if self.config.get(name) == default
+        ]
+        if not insecure:
+            return
+
+        in_debug_or_test = (
+            self.superset_app.debug or self.superset_app.config["TESTING"] or is_test()
+        )
+        if in_debug_or_test:
+            logger.warning(
+                "Debug/test mode identified with default value(s) for: %s",
+                ", ".join(insecure),
+            )
             log_default_secret_key_warning()
-            logger.error("Refusing to start due to insecure SECRET_KEY")
-            sys.exit(1)
+            return
+        log_default_secret_key_warning()
+        logger.error(
+            "Refusing to start due to insecure default value(s) for: %s",
+            ", ".join(insecure),
+        )
+        sys.exit(1)
 
     def configure_session(self) -> None:
         if self.config["SESSION_SERVER_SIDE"]:
