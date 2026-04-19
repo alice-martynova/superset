@@ -80,7 +80,10 @@ from superset.commands.importers.exceptions import (
 from superset.commands.importers.v1.utils import get_contents_from_bundle
 from superset.constants import MODEL_API_RW_METHOD_PERMISSION_MAP, RouteMethod
 from superset.daos.chart import ChartDAO
-from superset.exceptions import ScreenshotImageNotAvailableException
+from superset.exceptions import (
+    ScreenshotImageNotAvailableException,
+    SupersetSecurityException,
+)
 from superset.extensions import event_logger, security_manager
 from superset.models.slice import Slice
 from superset.tasks.thumbnails import cache_chart_thumbnail
@@ -306,11 +309,14 @@ class ChartRestApi(BaseSupersetModelRestApi):
         """
         # pylint: disable=arguments-differ
         try:
-            dash = ChartDAO.get_by_id_or_uuid(id_or_uuid)
-            result = self.chart_get_response_schema.dump(dash)
+            chart = ChartDAO.get_by_id_or_uuid(id_or_uuid)
+            security_manager.raise_for_access(chart=chart)
+            result = self.chart_get_response_schema.dump(chart)
             return self.response(200, result=result)
         except ChartNotFoundError:
             return self.response_404()
+        except SupersetSecurityException:
+            return self.response_403()
 
     @expose("/", methods=("POST",))
     @protect()
