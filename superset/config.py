@@ -319,13 +319,59 @@ QUERY_SEARCH_LIMIT = 1000
 # Flask-WTF flag for CSRF
 WTF_CSRF_ENABLED = True
 
-# Add endpoints that need to be exempt from CSRF protection
+# List of view functions that are exempted from CSRF protection.
+#
+# CSRF exemption is only safe when an endpoint either (a) authenticates the
+# caller through a mechanism that a cross-origin attacker cannot trigger from
+# the victim's browser (e.g. a Bearer/JWT token supplied via an Authorization
+# header, which is not automatically attached by the browser), or (b) is an
+# inbound hook driven by a trusted third party that, by protocol, cannot
+# include a Superset-issued CSRF token (e.g. a SAML Identity Provider posting
+# to the ACS endpoint).
+#
+# Each exemption below MUST be documented with the reason it is exempt and the
+# alternative authentication/authorization that protects it. Do not add a new
+# entry to this list without recording an inline justification and without
+# verifying that the endpoint either rejects cookie-only auth or is otherwise
+# not reachable via a forged cross-origin POST.
 WTF_CSRF_EXEMPT_LIST = [
+    # Chart Data REST API. Gated by flask_appbuilder.api.protect(), which
+    # requires a valid JWT Bearer token in the Authorization header. Browsers
+    # do not automatically attach Authorization headers cross-origin, so this
+    # endpoint is not reachable via a classic cookie-driven CSRF attack.
     "superset.charts.data.api.data",
+    # Dashboard screenshot caching REST API. Gated by
+    # flask_appbuilder.api.protect() (JWT Bearer token required) and further
+    # gated by the THUMBNAILS / ENABLE_DASHBOARD_SCREENSHOT_ENDPOINTS feature
+    # flags. Same reasoning as the Chart Data API above.
     "superset.dashboards.api.cache_dashboard_screenshot",
+    # Legacy explore_json endpoint (deprecated, slated for removal in 5.0).
+    # The client posts form_data as JSON; historical API clients and embedded
+    # integrations do not send CSRF tokens. Session-cookie auth applies, so
+    # the browser's SameSite=Lax session cookie is the primary mitigation
+    # against cross-origin POSTs. This exemption should be removed together
+    # with the endpoint when the 5.0 deprecation lands.
     "superset.views.core.explore_json",
+    # Event-log ingestion endpoint. Writes a log row (no data exfiltration
+    # and no privileged state change) and is invoked by the frontend from
+    # many page contexts, including ones where a CSRF token is not readily
+    # available. Session-cookie auth + SameSite=Lax is the mitigation; the
+    # blast radius of a forged call is limited to log spam for the caller.
     "superset.views.core.log",
+    # Datasource sample-data endpoint. Executes a bounded SAMPLES query and
+    # is called by the explore UI with a JSON body. Session-cookie auth +
+    # SameSite=Lax is the mitigation; callers that rely on the JSON POST
+    # shape (including embedded dashboards) would break if CSRF tokens were
+    # required. Tracked for removal/hardening alongside the legacy explore
+    # views.
     "superset.views.datasource.views.samples",
+    # SAML 2.0 Assertion Consumer Service handler provided by
+    # Flask-AppBuilder. The POST originates from the external Identity
+    # Provider (not the user's browser acting on its own), and the request
+    # body is a signed SAML Response that the ACS validates before
+    # establishing a session. A Superset-issued CSRF token cannot, by
+    # protocol, be round-tripped through the IdP, so CSRF exemption is
+    # required for SAML SSO to function.
     "flask_appbuilder.security.views.acs",
 ]
 
