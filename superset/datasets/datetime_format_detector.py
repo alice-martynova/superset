@@ -22,6 +22,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from flask import current_app
+from sqlalchemy import column as sa_column, select, table as sa_table
 
 from superset.connectors.sqla.models import SqlaTable, TableColumn
 from superset.utils.decorators import transaction
@@ -88,33 +89,21 @@ class DatetimeFormatDetector:
             return None
 
         try:
-            # Build SQL query using database's identifier quoting
-            # Note: Column and table names come from internal metadata, not user input
+            # Build the sampling query using SQLAlchemy's expression API so that
+            # identifier quoting and dialect differences are handled natively.
+            # Column and table names come from internal metadata, not user input.
             database: Database = dataset.database
 
-            # Get the database engine's dialect for proper identifier quoting
+            col = sa_column(column.column_name)
+            tbl = sa_table(dataset.table_name, col, schema=dataset.schema)
+            stmt = select(col).select_from(tbl).where(col.is_not(None))
+
             with database.get_sqla_engine() as engine:
-                dialect = engine.dialect
-
-                # Quote identifiers using the dialect's identifier preparer
-                column_name_quoted = dialect.identifier_preparer.quote(
-                    column.column_name
-                )
-                table_name_quoted = dialect.identifier_preparer.quote(
-                    dataset.table_name
-                )
-
-                if dataset.schema:
-                    schema_quoted = dialect.identifier_preparer.quote(dataset.schema)
-                    full_table = f"{schema_quoted}.{table_name_quoted}"
-                else:
-                    full_table = table_name_quoted
-
-                # Build SQL query string with quoted identifiers
-                # S608: false positive - using dialect's identifier preparer
-                sql = (  # noqa: S608
-                    f"SELECT {column_name_quoted} FROM {full_table} "  # noqa: S608
-                    f"WHERE {column_name_quoted} IS NOT NULL"  # noqa: S608
+                sql = str(
+                    stmt.compile(
+                        dialect=engine.dialect,
+                        compile_kwargs={"literal_binds": True},
+                    )
                 )
 
             # Apply database-specific LIMIT using apply_limit_to_sql
