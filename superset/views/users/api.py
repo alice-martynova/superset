@@ -25,7 +25,7 @@ from marshmallow import ValidationError
 from sqlalchemy.orm.exc import NoResultFound
 from werkzeug.security import generate_password_hash
 
-from superset import is_feature_enabled
+from superset import is_feature_enabled, security_manager
 from superset.daos.user import UserDAO
 from superset.extensions import db, event_logger
 from superset.utils.slack import get_user_avatar, SlackClientError
@@ -172,6 +172,7 @@ class UserRestApi(BaseSupersetApi):
     openapi_spec_component_schemas = (UserResponseSchema,)
 
     @expose("/<int:user_id>/avatar.png", methods=("GET",))
+    @protect()
     @safe
     def avatar(self, user_id: int) -> Response:
         """Get a redirect to the avatar's URL for the user with the given ID.
@@ -193,9 +194,14 @@ class UserRestApi(BaseSupersetApi):
               description: A redirect to the user's avatar URL
             401:
               $ref: '#/components/responses/401'
+            403:
+              $ref: '#/components/responses/403'
             404:
               $ref: '#/components/responses/404'
         """
+        if not security_manager.is_admin() and g.user.id != user_id:
+            return self.response_403()
+
         avatar_url = None
         try:
             user = UserDAO.get_by_id(user_id)
