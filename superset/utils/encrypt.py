@@ -44,6 +44,22 @@ class AbstractEncryptedFieldAdapter(ABC):  # pylint: disable=too-few-public-meth
         pass
 
 
+def _resolve_encryption_key(app_config: dict[str, Any]) -> str:
+    """
+    Resolve the key used for encrypting sensitive DB-stored fields (e.g.
+    database connection passwords).
+
+    Prefers the dedicated ``DATABASE_ENCRYPTED_FIELD_KEY`` config value when it
+    is set, so credential encryption does not share key material with other
+    uses of ``SECRET_KEY`` (session signing, CSRF, JWT, etc.). Falls back to
+    ``SECRET_KEY`` for backwards compatibility with existing deployments.
+    """
+    dedicated_key = app_config.get("DATABASE_ENCRYPTED_FIELD_KEY")
+    if dedicated_key:
+        return dedicated_key
+    return app_config["SECRET_KEY"]
+
+
 class SQLAlchemyUtilsAdapter(  # pylint: disable=too-few-public-methods
     AbstractEncryptedFieldAdapter
 ):
@@ -54,7 +70,9 @@ class SQLAlchemyUtilsAdapter(  # pylint: disable=too-few-public-methods
         **kwargs: Optional[dict[str, Any]],
     ) -> TypeDecorator:
         if app_config:
-            return EncryptedType(*args, lambda: app_config["SECRET_KEY"], **kwargs)
+            return EncryptedType(
+                *args, lambda: _resolve_encryption_key(app_config), **kwargs
+            )
 
         raise Exception(  # pylint: disable=broad-exception-raised
             "Missing app_config kwarg"

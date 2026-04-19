@@ -233,6 +233,24 @@ HASH_ALGORITHM_FALLBACKS: list[Literal["md5", "sha256"]] = ["md5"]
 # a sufficiently random sequence, ex: openssl rand -base64 42"
 SECRET_KEY = os.environ.get("SUPERSET_SECRET_KEY") or CHANGE_ME_SECRET_KEY
 
+# Dedicated key used to encrypt sensitive fields stored in the metadata database
+# (e.g. database connection passwords, OAuth tokens, SSH tunnel credentials).
+#
+# By default this is unset and encryption falls back to ``SECRET_KEY`` so that
+# existing deployments keep working without any migration. Setting a dedicated
+# value is strongly recommended: ``SECRET_KEY`` is used for session signing,
+# CSRF tokens, and JWT operations, so sharing it with credential encryption
+# creates a single point of compromise.
+#
+# To migrate an existing deployment to a dedicated key:
+#   1. Set ``PREVIOUS_SECRET_KEY`` to the current ``SECRET_KEY``.
+#   2. Set ``DATABASE_ENCRYPTED_FIELD_KEY`` to the new dedicated key.
+#   3. Run ``superset re-encrypt-secrets`` to re-encrypt stored credentials
+#      under the dedicated key.
+DATABASE_ENCRYPTED_FIELD_KEY: Optional[str] = (
+    os.environ.get("SUPERSET_DATABASE_ENCRYPTED_FIELD_KEY") or None
+)
+
 # The SQLAlchemy connection string.
 SQLALCHEMY_DATABASE_URI = (
     f"""sqlite:///{os.path.join(DATA_DIR, "superset.db")}?check_same_thread=false"""
