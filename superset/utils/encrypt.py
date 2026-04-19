@@ -54,11 +54,25 @@ class SQLAlchemyUtilsAdapter(  # pylint: disable=too-few-public-methods
         **kwargs: Optional[dict[str, Any]],
     ) -> TypeDecorator:
         if app_config:
-            return EncryptedType(*args, lambda: app_config["SECRET_KEY"], **kwargs)
+            return EncryptedType(
+                *args, lambda: _resolve_encryption_key(app_config), **kwargs
+            )
 
         raise Exception(  # pylint: disable=broad-exception-raised
             "Missing app_config kwarg"
         )
+
+
+def _resolve_encryption_key(app_config: dict[str, Any]) -> str:
+    """
+    Resolve the key used for database field encryption.
+
+    Prefers the dedicated ``DATABASE_ENCRYPTED_FIELD_KEY`` so that exposure of
+    ``SECRET_KEY`` (used for session cookies, CSRF tokens, etc.) does not
+    automatically compromise stored database credentials. Falls back to
+    ``SECRET_KEY`` for backwards compatibility when no dedicated key is set.
+    """
+    return app_config.get("DATABASE_ENCRYPTED_FIELD_KEY") or app_config["SECRET_KEY"]
 
 
 class EncryptedFieldFactory:

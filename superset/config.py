@@ -233,6 +233,21 @@ HASH_ALGORITHM_FALLBACKS: list[Literal["md5", "sha256"]] = ["md5"]
 # a sufficiently random sequence, ex: openssl rand -base64 42"
 SECRET_KEY = os.environ.get("SUPERSET_SECRET_KEY") or CHANGE_ME_SECRET_KEY
 
+# Dedicated key used to encrypt sensitive DB-stored fields (database connection
+# passwords, OAuth tokens, etc.) via ``EncryptedType`` columns. Using a separate
+# key from ``SECRET_KEY`` ensures that a leak of ``SECRET_KEY`` (which is also
+# used for session cookie signing, CSRF tokens, and JWT operations) does not
+# immediately compromise every stored credential.
+#
+# If unset, the adapter falls back to ``SECRET_KEY`` for backwards compatibility.
+# To rotate existing credentials onto a dedicated key, set this value and run
+# ``superset re-encrypt-secrets`` (which uses ``SecretsMigrator`` to re-encrypt
+# all ``EncryptedType`` columns under the new key). Use a strong random string,
+# e.g. ``openssl rand -base64 42``.
+DATABASE_ENCRYPTED_FIELD_KEY: str | None = (
+    os.environ.get("SUPERSET_DATABASE_ENCRYPTED_FIELD_KEY") or None
+)
+
 # The SQLAlchemy connection string.
 SQLALCHEMY_DATABASE_URI = (
     f"""sqlite:///{os.path.join(DATA_DIR, "superset.db")}?check_same_thread=false"""
