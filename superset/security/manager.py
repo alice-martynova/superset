@@ -2826,11 +2826,11 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
             # REGULAR RBAC logic
             # User can only acess the dashboard in case:
             #    It doesn't have any datasets; OR
-            #    They have access to at least one dataset used.
-            # We currently don't check if the dashboard is published,
+            #    They have access to every dataset used.
+            # We don't check if the dashboard is published,
             # to allow creators to share a WIP dashboard with a viewer
             # to collect feedback.
-            elif not dashboard.datasources or any(
+            elif not dashboard.datasources or all(
                 self.can_access_datasource(datasource)
                 for datasource in dashboard.datasources
             ):
