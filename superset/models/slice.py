@@ -325,15 +325,17 @@ class Slice(  # pylint: disable=too-many-public-methods
         return Markup(f'<a href="{self.url}">{name}</a>')
 
     @property
-    def icons(self) -> str:
-        return f"""
+    def icons(self) -> Markup:
+        href = escape(self.datasource_edit_url)
+        title = escape(self.datasource)
+        return Markup(f"""
         <a
-                href="{self.datasource_edit_url}"
+                href="{href}"
                 data-toggle="tooltip"
-                title="{self.datasource}">
+                title="{title}">
             <i class="fa fa-database"></i>
         </a>
-        """
+        """)
 
     @property
     def url(self) -> str:
