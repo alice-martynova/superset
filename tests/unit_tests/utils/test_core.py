@@ -1668,6 +1668,60 @@ def test_sanitize_svg_content_removes_scripts():
     assert "alert" not in result
 
 
+def test_sanitize_svg_content_blocks_known_bypasses():
+    """Regression test for bypasses that defeated the previous regex sanitizer."""
+    # HTML-entity-encoded javascript: scheme
+    assert "javascript" not in sanitize_svg_content(
+        '<svg><a href="&#106;avascript:alert(1)">x</a></svg>'
+    )
+    # Nested/malformed script tag
+    assert "<script" not in sanitize_svg_content(
+        "<svg><scri<script>pt>alert(1)</script></svg>"
+    )
+    # xlink:href carrying javascript: payload
+    assert "javascript" not in sanitize_svg_content(
+        '<svg><use xlink:href="javascript:alert(1)"/></svg>'
+    )
+    # data: URI with embedded script
+    assert "data:" not in sanitize_svg_content(
+        '<svg><image href="data:text/html,<script>alert(1)</script>"/></svg>'
+    )
+    # Event-handler attribute on svg root
+    assert "onload" not in sanitize_svg_content('<svg onload="alert(1)"><rect/></svg>')
+    # Disallowed animation element that could set event-handler attributes
+    assert "set" not in sanitize_svg_content(
+        '<svg><set attributeName="onload" to="alert(1)"/></svg>'
+    )
+    # Disallowed element (iframe) stripped entirely
+    assert "iframe" not in sanitize_svg_content('<svg><iframe src="x"/></svg>')
+
+
+def test_sanitize_svg_content_preserves_safe_features():
+    """Legitimate SVG elements, attributes, and https links are preserved."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        '<defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/>'
+        "</linearGradient></defs>"
+        '<g transform="translate(1,1)">'
+        '<rect width="8" height="8" fill="url(#g)"/>'
+        '<a href="https://example.com"><text x="0" y="0">hi</text></a>'
+        '<use xlink:href="#g"/>'
+        "</g></svg>"
+    )
+    result = sanitize_svg_content(svg)
+    for token in (
+        "svg",
+        "linearGradient",
+        "stop",
+        "rect",
+        "text",
+        "https://example.com",
+        "xlink:href",
+        "viewBox",
+    ):
+        assert token in result
+
+
 def test_sanitize_url_relative():
     """Test that relative URLs are allowed."""
     assert sanitize_url("/static/spinner.gif") == "/static/spinner.gif"
