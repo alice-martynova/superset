@@ -83,6 +83,7 @@ class EmbeddedView(BaseSupersetView):
             "common": common_bootstrap_payload(),
             "embedded": {
                 "dashboard_id": embedded.dashboard_id,
+                "allowed_domains": embedded.allowed_domains,
             },
         }
 

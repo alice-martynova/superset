@@ -177,6 +177,7 @@ export interface BootstrapData {
   config?: any;
   embedded?: {
     dashboard_id: string;
+    allowed_domains?: string[];
   };
   requested_query?: JsonObject;
 }
