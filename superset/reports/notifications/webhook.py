@@ -15,7 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import ipaddress
 import logging
+import socket
 from typing import Any
 from urllib.parse import urlparse
 
@@ -42,6 +44,46 @@ class WebhookNotification(BaseNotification):
     """
 
     type = ReportRecipientType.WEBHOOK
+
+    @staticmethod
+    def _validate_webhook_url_host(wh_url: str) -> None:
+        """
+        Resolve the webhook URL hostname and reject requests that would
+        target loopback, link-local, private (RFC-1918), reserved,
+        multicast, or unspecified IP ranges. This prevents SSRF against
+        internal services (e.g. cloud metadata endpoints) that may still
+        present valid TLS certificates.
+        """
+        parsed = urlparse(wh_url)
+        hostname = parsed.hostname
+        if not hostname:
+            raise NotificationParamException(
+                "Webhook failed: webhook URL is missing a hostname."
+            )
+        try:
+            addr_infos = socket.getaddrinfo(hostname, None)
+        except socket.gaierror as ex:
+            raise NotificationParamException(
+                "Webhook failed: could not resolve webhook URL hostname."
+            ) from ex
+        for addr_info in addr_infos:
+            sockaddr = addr_info[4]
+            try:
+                ip = ipaddress.ip_address(sockaddr[0])
+            except ValueError:
+                continue
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                raise NotificationParamException(
+                    "Webhook failed: webhook URL resolves to a disallowed "
+                    "IP address range."
+                )
 
     def _get_webhook_url(self) -> str:
         """
@@ -109,6 +151,7 @@ class WebhookNotification(BaseNotification):
                 raise NotificationParamException(
                     "Webhook failed: HTTPS is required by config for webhook URLs."
                 )
+        self._validate_webhook_url_host(wh_url)
         payload = self._get_req_payload()
         files = self._get_files()
 
