@@ -42,7 +42,10 @@ export default function injectCustomCss(css: string) {
   if ('styleSheet' in style) {
     (style as HTMLStyleElement & MysteryStyleElement).styleSheet.cssText = css;
   } else {
-    style.innerHTML = css;
+    // Use textContent instead of innerHTML so the assigned value is not
+    // parsed as HTML. This prevents stored HTML/JS injection via dashboard
+    // CSS (e.g. payloads like `</style><script>...`).
+    style.textContent = css;
   }
 
   /**
