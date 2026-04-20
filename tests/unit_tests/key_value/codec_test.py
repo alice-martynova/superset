@@ -103,20 +103,26 @@ def test_marshmallow_codec(schema: Schema, input_: Any, expected_result: Any):
     "input_,expected_result",
     [
         (
-            {1, 2, 3},
-            {1, 2, 3},
+            {"foo": "bar"},
+            {"foo": "bar"},
         ),
         (
-            {"foo": 1, "bar": {1: (1, 2, 3)}, "baz": {1, 2, 3}},
-            {
-                "foo": 1,
-                "bar": {1: (1, 2, 3)},
-                "baz": {1, 2, 3},
-            },
+            {"foo": 1, "bar": [1, 2, 3]},
+            {"foo": 1, "bar": [1, 2, 3]},
+        ),
+        (
+            {1, 2, 3},
+            KeyValueCodecEncodeException(),
         ),
     ],
 )
 def test_pickle_codec(input_: Any, expected_result: Any):
-    codec = PickleKeyValueCodec()
-    encoded_value = codec.encode(input_)
-    assert expected_result == codec.decode(encoded_value)
+    cm = (
+        pytest.raises(type(expected_result))
+        if isinstance(expected_result, Exception)
+        else nullcontext()
+    )
+    with cm:
+        codec = PickleKeyValueCodec()
+        encoded_value = codec.encode(input_)
+        assert expected_result == codec.decode(encoded_value)

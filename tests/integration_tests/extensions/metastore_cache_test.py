@@ -120,8 +120,8 @@ def test_expiry(app_context: AppContext, cache: SupersetMetastoreCache) -> None:
         (("foo", "bar"), JsonKeyValueCodec(), ["foo", "bar"]),
         (complex(1, 1), JsonKeyValueCodec(), KeyValueCreateFailedError()),
         ({"foo": "bar"}, PickleKeyValueCodec(), {"foo": "bar"}),
-        (("foo", "bar"), PickleKeyValueCodec(), ("foo", "bar")),
-        (complex(1, 1), PickleKeyValueCodec(), complex(1, 1)),
+        (("foo", "bar"), PickleKeyValueCodec(), ["foo", "bar"]),
+        (complex(1, 1), PickleKeyValueCodec(), KeyValueCreateFailedError()),
     ],
 )
 def test_codec(

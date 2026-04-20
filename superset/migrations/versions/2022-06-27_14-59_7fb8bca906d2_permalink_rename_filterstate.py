@@ -26,8 +26,6 @@ Create Date: 2022-06-27 14:59:20.740380
 revision = "7fb8bca906d2"
 down_revision = "f3afaf1f11f0"
 
-import pickle  # noqa: E402
-
 from alembic import op  # noqa: E402
 from sqlalchemy import Column, Integer, LargeBinary, String  # noqa: E402
 from sqlalchemy.ext.declarative import declarative_base  # noqa: E402
@@ -35,6 +33,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from superset import db  # noqa: E402
 from superset.migrations.shared.utils import paginated_update  # noqa: E402
+from superset.utils import json  # noqa: E402
 
 Base = declarative_base()
 VALUE_MAX_SIZE = 2**24 - 1
@@ -56,7 +55,7 @@ def upgrade():
             KeyValueEntry.resource == DASHBOARD_PERMALINK_RESOURCE_TYPE
         )
     ):
-        value = pickle.loads(entry.value) or {}  # noqa: S301
+        value = json.loads(entry.value) or {}
         state = value.get("state")
         if state:
             if "filterState" in state:
@@ -65,7 +64,7 @@ def upgrade():
             if "hash" in state:
                 state["anchor"] = state["hash"]
                 del state["hash"]
-            entry.value = pickle.dumps(value)
+            entry.value = bytes(json.dumps(value), encoding="utf-8")
 
 
 def downgrade():
@@ -76,7 +75,7 @@ def downgrade():
             KeyValueEntry.resource == DASHBOARD_PERMALINK_RESOURCE_TYPE
         ),
     ):
-        value = pickle.loads(entry.value) or {}  # noqa: S301
+        value = json.loads(entry.value) or {}
         state = value.get("state")
         if state:
             if "dataMask" in state:
@@ -85,4 +84,4 @@ def downgrade():
             if "anchor" in state:
                 state["hash"] = state["anchor"]
                 del state["anchor"]
-            entry.value = pickle.dumps(value)
+            entry.value = bytes(json.dumps(value), encoding="utf-8")

@@ -17,7 +17,6 @@
 # pylint: disable=unused-argument, import-outside-toplevel, unused-import
 from __future__ import annotations
 
-import pickle
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -47,7 +46,7 @@ ID_KEY = 123
 UUID_KEY = UUID("3e7a2ab8-bcaf-49b0-a5df-dfb432f291cc")
 RESOURCE = KeyValueResource.APP
 JSON_VALUE = {"foo": "bar"}
-PICKLE_VALUE = object()
+PICKLE_VALUE = {"foo": "baz"}
 JSON_CODEC = JsonKeyValueCodec()
 PICKLE_CODEC = PickleKeyValueCodec()
 NEW_VALUE = {"foo": "baz"}
@@ -120,7 +119,7 @@ def test_create_fail_json_entry(
     with pytest.raises(KeyValueCreateFailedError):
         KeyValueDAO.create_entry(
             resource=RESOURCE,
-            value=PICKLE_VALUE,
+            value=object(),
             codec=JSON_CODEC,
         )
 
@@ -143,7 +142,7 @@ def test_create_pickle_entry(
         found_entry = (
             db.session.query(KeyValueEntry).filter_by(id=created_entry.id).one()
         )
-        assert isinstance(pickle.loads(found_entry.value), type(PICKLE_VALUE))  # noqa: S301
+        assert json.loads(found_entry.value) == PICKLE_VALUE
         assert found_entry.created_by_fk == admin_user.id
 
 
