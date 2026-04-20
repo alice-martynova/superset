@@ -39,6 +39,7 @@ from superset.utils.core import (
     get_stacktrace,
     get_user_agent,
     is_test,
+    markdown,
     merge_extra_filters,
     merge_extra_form_data,
     merge_request_params,
@@ -1688,3 +1689,38 @@ def test_sanitize_url_blocks_dangerous():
     """Test that dangerous URL schemes are blocked."""
     assert sanitize_url("javascript:alert('xss')") == ""
     assert sanitize_url("data:text/html,<script>alert(1)</script>") == ""
+
+
+def test_markdown_strips_javascript_href():
+    """
+    Regression test for issue #48: ensure ``markdown`` sanitizer strips
+    ``javascript:`` URLs from anchor hrefs regardless of nh3 defaults, by
+    explicitly restricting ``url_schemes`` to http/https.
+    """
+    raw = "[click me](javascript:alert('xss'))"
+    sanitized = markdown(raw)
+    assert "javascript:" not in sanitized
+    assert "alert" not in sanitized
+
+
+def test_markdown_strips_javascript_href_raw_html():
+    """Ensure raw-HTML anchors with ``javascript:`` hrefs are also stripped."""
+    raw = '<a href="javascript:alert(1)">click</a>'
+    sanitized = markdown(raw)
+    assert "javascript:" not in sanitized
+
+
+def test_markdown_strips_data_uri_href():
+    """Ensure ``data:`` hrefs (not in the http/https allow-list) are stripped."""
+    raw = '<a href="data:text/html,<script>alert(1)</script>">click</a>'
+    sanitized = markdown(raw)
+    assert "data:" not in sanitized
+
+
+def test_markdown_preserves_http_and_https_hrefs():
+    """Ensure legitimate http/https anchor hrefs are preserved."""
+    sanitized = markdown("[ok](https://example.com)")
+    assert 'href="https://example.com"' in sanitized
+
+    sanitized_http = markdown("[ok](http://example.com)")
+    assert 'href="http://example.com"' in sanitized_http

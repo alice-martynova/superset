@@ -528,7 +528,12 @@ def markdown(raw: str, markup_wrap: bool | None = False) -> str:
         ],
     )
     # pylint: disable=no-member
-    safe = nh3.clean(safe, tags=safe_markdown_tags, attributes=safe_markdown_attrs)
+    safe = nh3.clean(
+        safe,
+        tags=safe_markdown_tags,
+        attributes=safe_markdown_attrs,
+        url_schemes={"http", "https"},
+    )
     if markup_wrap:
         safe = Markup(safe)
     return safe
