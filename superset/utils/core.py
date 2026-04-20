@@ -539,41 +539,194 @@ def markdown(raw: str, markup_wrap: bool | None = False) -> str:
     return safe
 
 
-def sanitize_svg_content(svg_content: str) -> str:
-    """Basic SVG protection - remove obvious XSS vectors, trust admin input otherwise.
+# Elements permitted inside sanitized SVG branding content. Only shape,
+# structural, gradient, filter, and animation primitives are allowed; script,
+# iframe, object, embed, foreignObject, etc. are intentionally excluded.
+_SVG_ALLOWED_TAGS = frozenset(
+    {
+        "svg",
+        "g",
+        "defs",
+        "symbol",
+        "use",
+        "title",
+        "desc",
+        "a",
+        "image",
+        "path",
+        "rect",
+        "circle",
+        "ellipse",
+        "line",
+        "polyline",
+        "polygon",
+        "text",
+        "tspan",
+        "textPath",
+        "marker",
+        "linearGradient",
+        "radialGradient",
+        "stop",
+        "clipPath",
+        "mask",
+        "pattern",
+        "filter",
+        "feBlend",
+        "feColorMatrix",
+        "feComponentTransfer",
+        "feComposite",
+        "feConvolveMatrix",
+        "feDiffuseLighting",
+        "feDisplacementMap",
+        "feDistantLight",
+        "feDropShadow",
+        "feFlood",
+        "feFuncA",
+        "feFuncB",
+        "feFuncG",
+        "feFuncR",
+        "feGaussianBlur",
+        "feImage",
+        "feMerge",
+        "feMergeNode",
+        "feMorphology",
+        "feOffset",
+        "fePointLight",
+        "feSpecularLighting",
+        "feSpotLight",
+        "feTile",
+        "feTurbulence",
+    }
+)
 
-    Minimal protection approach that removes scripts and javascript: URLs while
-    preserving all legitimate SVG features. Assumes admin-provided content.
+# Presentation/geometry attributes allowed on any permitted SVG element. URL-
+# bearing attributes (``href``/``xlink:href``) are restricted to specific tags
+# below so that ``url_schemes`` filtering applies.
+_SVG_ALLOWED_ATTRS: dict[str, set[str]] = {
+    "*": {
+        "id",
+        "class",
+        "style",
+        "transform",
+        "fill",
+        "fill-opacity",
+        "fill-rule",
+        "stroke",
+        "stroke-width",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "stroke-dasharray",
+        "stroke-dashoffset",
+        "stroke-opacity",
+        "stroke-miterlimit",
+        "opacity",
+        "color",
+        "display",
+        "visibility",
+        "d",
+        "x",
+        "y",
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "cx",
+        "cy",
+        "r",
+        "rx",
+        "ry",
+        "width",
+        "height",
+        "viewBox",
+        "preserveAspectRatio",
+        "points",
+        "offset",
+        "stop-color",
+        "stop-opacity",
+        "gradientUnits",
+        "gradientTransform",
+        "spreadMethod",
+        "patternUnits",
+        "patternContentUnits",
+        "patternTransform",
+        "markerUnits",
+        "markerWidth",
+        "markerHeight",
+        "refX",
+        "refY",
+        "orient",
+        "clip-path",
+        "clip-rule",
+        "mask",
+        "filter",
+        "font-family",
+        "font-size",
+        "font-weight",
+        "font-style",
+        "text-anchor",
+        "dominant-baseline",
+        "alignment-baseline",
+        "letter-spacing",
+        "word-spacing",
+        "text-decoration",
+        "dx",
+        "dy",
+        "rotate",
+        "lengthAdjust",
+        "textLength",
+        "xmlns",
+        "xmlns:xlink",
+        "version",
+        "baseProfile",
+        "type",
+        "in",
+        "in2",
+        "result",
+        "stdDeviation",
+        "flood-color",
+        "flood-opacity",
+        "lighting-color",
+        "mode",
+        "values",
+    },
+    "a": {"href", "xlink:href", "target"},
+    "use": {"href", "xlink:href"},
+    "image": {"href", "xlink:href"},
+    "feImage": {"href", "xlink:href"},
+}
+
+# URL schemes permitted on ``href`` / ``xlink:href``. ``javascript:`` and
+# ``data:`` are intentionally excluded to prevent script execution and
+# embedded payloads.
+_SVG_ALLOWED_URL_SCHEMES = frozenset({"http", "https", "mailto"})
+
+
+def sanitize_svg_content(svg_content: str) -> str:
+    """Sanitize SVG branding content using an allowlist-based HTML parser.
+
+    Uses ``nh3`` (Ammonia) with an explicit SVG element/attribute allowlist and
+    restricted URL schemes. This avoids the known bypasses that affect
+    regex-based sanitization (HTML-entity encoded schemes, nested/malformed
+    tags, ``xlink:href`` payloads, event-bearing animation elements, ``data:``
+    URIs, etc.).
 
     Args:
-        svg_content: Raw SVG content string
+        svg_content: Raw SVG content string.
 
     Returns:
-        str: SVG content with obvious XSS vectors removed
+        str: SVG content with disallowed elements, attributes, and URL schemes
+        removed.
     """
     if not svg_content or not svg_content.strip():
         return ""
 
-    # Minimal protection: remove obvious malicious content, preserve all SVG features
-    content = re.sub(
-        r"<script[^>]*>.*?</script>", "", svg_content, flags=re.IGNORECASE | re.DOTALL
+    # pylint: disable=no-member
+    return nh3.clean(
+        svg_content,
+        tags=set(_SVG_ALLOWED_TAGS),
+        attributes={tag: set(attrs) for tag, attrs in _SVG_ALLOWED_ATTRS.items()},
+        url_schemes=set(_SVG_ALLOWED_URL_SCHEMES),
     )
-    content = re.sub(r"javascript:", "", content, flags=re.IGNORECASE)
-    content = re.sub(r"data:[^;]*;[^,]*,.*javascript", "", content, flags=re.IGNORECASE)
-
-    # Remove event handlers (simple catch-all approach)
-    content = re.sub(r"\bon\w+\s*=", "", content, flags=re.IGNORECASE)
-
-    # Remove other suspicious patterns
-    content = re.sub(
-        r"<iframe[^>]*>.*?</iframe>", "", content, flags=re.IGNORECASE | re.DOTALL
-    )
-    content = re.sub(
-        r"<object[^>]*>.*?</object>", "", content, flags=re.IGNORECASE | re.DOTALL
-    )
-    content = re.sub(r"<embed[^>]*>", "", content, flags=re.IGNORECASE)
-
-    return content
 
 
 def sanitize_url(url: str) -> str:
