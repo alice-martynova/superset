@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import json
-import pickle
 from abc import ABC, abstractmethod
 from typing import Any, TypedDict, Union
 from uuid import UUID
@@ -77,12 +76,14 @@ class JsonKeyValueCodec(KeyValueCodec):
             raise KeyValueCodecDecodeException(str(ex)) from ex
 
 
-class PickleKeyValueCodec(KeyValueCodec):
-    def encode(self, value: dict[Any, Any]) -> bytes:
-        return pickle.dumps(value)
+class PickleKeyValueCodec(JsonKeyValueCodec):
+    """Deprecated. Retained as an alias for :class:`JsonKeyValueCodec`.
 
-    def decode(self, value: bytes) -> dict[Any, Any]:
-        return pickle.loads(value)  # noqa: S301
+    Previously used :mod:`pickle`, which allows arbitrary code execution when
+    deserializing attacker-influenced data. Values are encoded and decoded as
+    JSON. Non-JSON-serializable Python objects (sets, tuples, complex numbers,
+    arbitrary class instances) are no longer supported.
+    """
 
 
 class MarshmallowKeyValueCodec(JsonKeyValueCodec):
