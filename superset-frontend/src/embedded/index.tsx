@@ -138,16 +138,44 @@ if (!window.parent || window.parent === window) {
   );
 }
 
-// if the page is embedded in an origin that hasn't
-// been authorized by the curator, we forbid access entirely.
-// todo: check the referrer on the route serving this page instead
-// const ALLOW_ORIGINS = ['http://127.0.0.1:9001', 'http://localhost:9001'];
-// const parentOrigin = new URL(document.referrer).origin;
-// if (!ALLOW_ORIGINS.includes(parentOrigin)) {
-//   throw new Error(
-//     `[superset] iframe parent ${parentOrigin} is not in the list of allowed origins`,
-//   );
-// }
+// The embedding configuration (served by the backend) declares which parent
+// origins are allowed to embed this dashboard. The client enforces that same
+// allow-list on messages received from the parent frame so that the guest
+// token can only be accepted from a trusted embedder. An empty allow-list
+// preserves the server-side behavior of permitting any embedder.
+const ALLOW_ORIGINS: string[] = (bootstrapData.embedded?.allowed_domains ?? [])
+  .map(domain => {
+    try {
+      return new URL(domain).origin;
+    } catch {
+      logging.error(
+        `[superset] ignoring invalid allowed_domains entry: ${domain}`,
+      );
+      return null;
+    }
+  })
+  .filter((origin): origin is string => origin !== null);
+
+function isOriginAllowed(origin: string): boolean {
+  // An empty allow-list matches the server-side default where any domain may
+  // embed the dashboard. When an allow-list is configured, only those origins
+  // may send messages to this page.
+  return ALLOW_ORIGINS.length === 0 || ALLOW_ORIGINS.includes(origin);
+}
+
+if (document.referrer && ALLOW_ORIGINS.length > 0) {
+  let parentOrigin = '';
+  try {
+    parentOrigin = new URL(document.referrer).origin;
+  } catch {
+    // leave parentOrigin empty so the check below fails closed
+  }
+  if (!isOriginAllowed(parentOrigin)) {
+    throw new Error(
+      `[superset] iframe parent ${parentOrigin} is not in the list of allowed origins`,
+    );
+  }
+}
 
 let displayedUnauthorizedToast = false;
 
@@ -216,9 +244,11 @@ function setupGuestClient(guestToken: string) {
 }
 
 function validateMessageEvent(event: MessageEvent) {
-  // if (!ALLOW_ORIGINS.includes(event.origin)) {
-  //   throw new Error('Message origin is not in the allowed list');
-  // }
+  if (!isOriginAllowed(event.origin)) {
+    throw new Error(
+      `Message origin ${event.origin} is not in the allowed list`,
+    );
+  }
 
   if (typeof event.data !== 'object' || event.data.type !== MESSAGE_TYPE) {
     throw new Error(`Message type does not match type used for embedded comms`);
