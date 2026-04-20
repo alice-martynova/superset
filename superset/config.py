@@ -2578,6 +2578,22 @@ except ImportError:
 LOCAL_EXTENSIONS: list[str] = []
 EXTENSIONS_PATH: str | None = None
 
+# Extension bundle signature verification.
+#
+# Extension bundles are executed as Python code at load time, so Superset
+# requires each bundle to ship a detached Ed25519 signature (stored in a file
+# named ``signature`` inside the bundle) over a canonical digest of the
+# bundle's contents. Bundles whose signature cannot be verified against one of
+# the trusted public keys below are refused.
+#
+# Populate this list with PEM-encoded Ed25519 public keys (strings or bytes).
+EXTENSIONS_TRUSTED_PUBLIC_KEYS: list[str] = []
+
+# Development-only escape hatch: when ``True``, extension bundles that do not
+# contain a ``signature`` file are allowed to load. This MUST remain ``False``
+# in production, where all bundles are expected to be signed.
+EXTENSIONS_ALLOW_UNSIGNED: bool = False
+
 # Default polling interval for tasks (seconds)
 TASK_ABORT_POLLING_DEFAULT_INTERVAL = 10
 

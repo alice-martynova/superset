@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import hashlib
 import importlib.abc
 import importlib.util
 import logging
@@ -25,6 +26,9 @@ from pathlib import Path
 from typing import Any, Generator, Iterable, Tuple
 from zipfile import ZipFile
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from flask import current_app
 from pydantic import ValidationError
 from superset_core.extensions.types import Manifest
@@ -37,6 +41,96 @@ logger = logging.getLogger(__name__)
 
 FRONTEND_REGEX = re.compile(r"^frontend/dist/([^/]+)$")
 BACKEND_REGEX = re.compile(r"^backend/src/(.+)$")
+
+SIGNATURE_FILENAME = "signature"
+
+
+class ExtensionSignatureError(Exception):
+    """Raised when an extension bundle's signature cannot be verified."""
+
+
+def _compute_bundle_digest(file_dict: dict[str, bytes]) -> bytes:
+    """
+    Compute a canonical SHA-256 digest over all files in the bundle, excluding
+    the signature file itself. The digest binds both file names and contents so
+    that adding, removing, or modifying any file invalidates the signature.
+    """
+    hasher = hashlib.sha256()
+    for name in sorted(file_dict):
+        if name == SIGNATURE_FILENAME:
+            continue
+        hasher.update(name.encode("utf-8"))
+        hasher.update(b"\x00")
+        hasher.update(hashlib.sha256(file_dict[name]).digest())
+    return hasher.digest()
+
+
+def verify_bundle_signature(file_dict: dict[str, bytes]) -> None:
+    """
+    Verify a detached Ed25519 signature on an extension bundle against the
+    trusted public keys configured in ``EXTENSIONS_TRUSTED_PUBLIC_KEYS``.
+
+    The bundle must contain a ``signature`` file whose content is the raw
+    Ed25519 signature bytes over :func:`_compute_bundle_digest` of the bundle.
+
+    If ``EXTENSIONS_ALLOW_UNSIGNED`` is set to ``True``, bundles without a
+    ``signature`` file are allowed to load; this flag is intended for local
+    development only and must remain disabled in production.
+
+    :raises ExtensionSignatureError: if the bundle is unsigned (and unsigned
+        bundles are not allowed), if no trusted public keys are configured, or
+        if the signature does not verify against any trusted key.
+    """
+    config = current_app.config
+    allow_unsigned = bool(config.get("EXTENSIONS_ALLOW_UNSIGNED", False))
+    trusted_keys = config.get("EXTENSIONS_TRUSTED_PUBLIC_KEYS") or []
+
+    signature = file_dict.get(SIGNATURE_FILENAME)
+    if signature is None:
+        if allow_unsigned:
+            logger.warning(
+                "Loading unsigned extension bundle because "
+                "EXTENSIONS_ALLOW_UNSIGNED is enabled. This must not be used "
+                "in production."
+            )
+            return
+        raise ExtensionSignatureError(
+            "Extension bundle is missing a 'signature' file. Signed bundles "
+            "are required unless EXTENSIONS_ALLOW_UNSIGNED is enabled."
+        )
+
+    if not trusted_keys:
+        raise ExtensionSignatureError(
+            "No trusted public keys are configured "
+            "(EXTENSIONS_TRUSTED_PUBLIC_KEYS); cannot verify extension bundle "
+            "signature."
+        )
+
+    digest = _compute_bundle_digest(file_dict)
+    for pem_key in trusted_keys:
+        key_bytes = pem_key.encode("utf-8") if isinstance(pem_key, str) else pem_key
+        try:
+            public_key = serialization.load_pem_public_key(key_bytes)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Skipping unparseable trusted public key: %s", exc)
+            continue
+        if not isinstance(public_key, ed25519.Ed25519PublicKey):
+            logger.warning(
+                "Skipping trusted public key of unsupported type %s; only "
+                "Ed25519 keys are accepted for extension signatures.",
+                type(public_key).__name__,
+            )
+            continue
+        try:
+            public_key.verify(signature, digest)
+            return
+        except InvalidSignature:
+            continue
+
+    raise ExtensionSignatureError(
+        "Extension bundle signature could not be verified against any "
+        "trusted public key."
+    )
 
 
 class InMemoryLoader(importlib.abc.Loader):
@@ -190,13 +284,18 @@ def get_loaded_extension(
         (e.g., "supx://extension-id").
     :returns: LoadedExtension instance
     """
+    # Materialize the bundle so the signature can be verified over its full
+    # contents before any backend code is kept for later exec().
+    file_dict: dict[str, bytes] = {file.name: file.content for file in files}
+    verify_bundle_signature(file_dict)
+
     manifest: Manifest | None = None
     frontend: dict[str, bytes] = {}
     backend: dict[str, bytes] = {}
 
-    for file in files:
-        filename = file.name
-        content = file.content
+    for filename, content in file_dict.items():
+        if filename == SIGNATURE_FILENAME:
+            continue
 
         if filename == "manifest.json":
             try:
