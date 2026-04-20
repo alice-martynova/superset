@@ -17,8 +17,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+import socket
 import time
 from datetime import datetime
 from typing import Any, Optional, TYPE_CHECKING
@@ -198,6 +200,45 @@ class ImpalaEngineSpec(BaseEngineSpec):
         return f"{guid[-16:]}:{guid[:16]}"
 
     @classmethod
+    def _is_safe_impala_host(
+        cls, impala_host: Optional[str], database: Database
+    ) -> bool:
+        """
+        Validate that ``impala_host`` matches the hostname configured for the
+        connected Impala database and does not resolve to a private, loopback,
+        link-local, or otherwise non-routable address. This prevents the
+        cancellation request from being redirected at internal infrastructure
+        (SSRF).
+        """
+        if not impala_host:
+            return False
+        configured_host = database.url_object.host
+        if not configured_host or configured_host != impala_host:
+            return False
+        try:
+            addr_infos = socket.getaddrinfo(impala_host, None)
+        except OSError:
+            return False
+        if not addr_infos:
+            return False
+        for info in addr_infos:
+            sockaddr = info[4]
+            try:
+                ip = ipaddress.ip_address(sockaddr[0])
+            except ValueError:
+                return False
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                return False
+        return True
+
+    @classmethod
     def cancel_query(cls, cursor: Any, query: Query, cancel_query_id: str) -> bool:
         """
         Cancel query in the underlying database.
@@ -209,6 +250,13 @@ class ImpalaEngineSpec(BaseEngineSpec):
         """
         try:
             impala_host = query.database.url_object.host
+            if not cls._is_safe_impala_host(impala_host, query.database):
+                logger.warning(
+                    "Refusing to cancel Impala query: host %r failed SSRF "
+                    "validation against configured database host",
+                    impala_host,
+                )
+                return False
             url = f"http://{impala_host}:25000/cancel_query?query_id={cancel_query_id}"
             response = requests.post(url, timeout=3)
         except Exception:  # pylint: disable=broad-except

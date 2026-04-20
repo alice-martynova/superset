@@ -60,14 +60,20 @@ def test_get_cancel_query_id() -> None:
     )
 
 
+PUBLIC_ADDR_INFO = [(2, 1, 6, "", ("8.8.8.8", 0))]
+
+
+@patch("superset.db_engine_specs.impala.socket.getaddrinfo")
 @patch("requests.post")
-def test_cancel_query(post_mock: Mock) -> None:
+def test_cancel_query(post_mock: Mock, getaddrinfo_mock: Mock) -> None:
     query = Query()
     database = Database(
-        database_name="test_impala", sqlalchemy_uri="impala://localhost:21050/default"
+        database_name="test_impala",
+        sqlalchemy_uri="impala://impala.example.com:21050/default",
     )
     query.database = database
 
+    getaddrinfo_mock.return_value = PUBLIC_ADDR_INFO
     response_mock = Mock()
     response_mock.status_code = 200
     post_mock.return_value = response_mock
@@ -75,20 +81,23 @@ def test_cancel_query(post_mock: Mock) -> None:
     result = spec.cancel_query(None, query, "6940643a2731718b:9fbdba2000000000")
 
     post_mock.assert_called_once_with(
-        "http://localhost:25000/cancel_query?query_id=6940643a2731718b:9fbdba2000000000",
+        "http://impala.example.com:25000/cancel_query?query_id=6940643a2731718b:9fbdba2000000000",
         timeout=3,
     )
     assert result is True
 
 
+@patch("superset.db_engine_specs.impala.socket.getaddrinfo")
 @patch("requests.post")
-def test_cancel_query_failed(post_mock: Mock) -> None:
+def test_cancel_query_failed(post_mock: Mock, getaddrinfo_mock: Mock) -> None:
     query = Query()
     database = Database(
-        database_name="test_impala", sqlalchemy_uri="impala://localhost:21050/default"
+        database_name="test_impala",
+        sqlalchemy_uri="impala://impala.example.com:21050/default",
     )
     query.database = database
 
+    getaddrinfo_mock.return_value = PUBLIC_ADDR_INFO
     response_mock = Mock()
     response_mock.status_code = 500
     post_mock.return_value = response_mock
@@ -96,22 +105,79 @@ def test_cancel_query_failed(post_mock: Mock) -> None:
     result = spec.cancel_query(None, query, "6940643a2731718b:9fbdba2000000000")
 
     post_mock.assert_called_once_with(
-        "http://localhost:25000/cancel_query?query_id=6940643a2731718b:9fbdba2000000000",
+        "http://impala.example.com:25000/cancel_query?query_id=6940643a2731718b:9fbdba2000000000",
         timeout=3,
     )
     assert result is False
 
 
+@patch("superset.db_engine_specs.impala.socket.getaddrinfo")
 @patch("requests.post")
-def test_cancel_query_exception(post_mock: Mock) -> None:
+def test_cancel_query_exception(post_mock: Mock, getaddrinfo_mock: Mock) -> None:
     query = Query()
     database = Database(
-        database_name="test_impala", sqlalchemy_uri="impala://localhost:21050/default"
+        database_name="test_impala",
+        sqlalchemy_uri="impala://impala.example.com:21050/default",
     )
     query.database = database
 
+    getaddrinfo_mock.return_value = PUBLIC_ADDR_INFO
     post_mock.side_effect = Exception("Network error")
 
     result = spec.cancel_query(None, query, "6940643a2731718b:9fbdba2000000000")
 
     assert result is False
+
+
+@pytest.mark.parametrize(
+    "resolved_ip",
+    [
+        "127.0.0.1",
+        "10.0.0.5",
+        "192.168.1.1",
+        "172.16.0.1",
+        "169.254.169.254",
+        "::1",
+        "fe80::1",
+        "0.0.0.0",  # noqa: S104
+    ],
+)
+@patch("superset.db_engine_specs.impala.socket.getaddrinfo")
+@patch("requests.post")
+def test_cancel_query_rejects_ssrf_targets(
+    post_mock: Mock, getaddrinfo_mock: Mock, resolved_ip: str
+) -> None:
+    query = Query()
+    database = Database(
+        database_name="test_impala",
+        sqlalchemy_uri="impala://impala.example.com:21050/default",
+    )
+    query.database = database
+
+    family = 10 if ":" in resolved_ip else 2
+    getaddrinfo_mock.return_value = [(family, 1, 6, "", (resolved_ip, 0))]
+
+    result = spec.cancel_query(None, query, "6940643a2731718b:9fbdba2000000000")
+
+    assert result is False
+    post_mock.assert_not_called()
+
+
+@patch("superset.db_engine_specs.impala.socket.getaddrinfo")
+@patch("requests.post")
+def test_cancel_query_rejects_unresolvable_host(
+    post_mock: Mock, getaddrinfo_mock: Mock
+) -> None:
+    query = Query()
+    database = Database(
+        database_name="test_impala",
+        sqlalchemy_uri="impala://impala.example.com:21050/default",
+    )
+    query.database = database
+
+    getaddrinfo_mock.side_effect = OSError("name resolution failed")
+
+    result = spec.cancel_query(None, query, "6940643a2731718b:9fbdba2000000000")
+
+    assert result is False
+    post_mock.assert_not_called()
