@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 from flask import Flask
 from flask_babel import lazy_gettext as _
-from sqlalchemy import text, TypeDecorator
+from sqlalchemy import column, select, table as sa_table, TypeDecorator, update
 from sqlalchemy.engine import Connection, Dialect, Row
 from sqlalchemy_utils import EncryptedType as SqlaEncryptedType
 
@@ -54,8 +54,7 @@ def _resolve_encryption_key(app_config: dict[str, Any]) -> str:
     uses of ``SECRET_KEY`` (session signing, CSRF, JWT, etc.). Falls back to
     ``SECRET_KEY`` for backwards compatibility with existing deployments.
     """
-    dedicated_key = app_config.get("DATABASE_ENCRYPTED_FIELD_KEY")
-    if dedicated_key:
+    if dedicated_key := app_config.get("DATABASE_ENCRYPTED_FIELD_KEY"):
         return dedicated_key
     return app_config["SECRET_KEY"]
 
@@ -79,7 +78,7 @@ class SQLAlchemyUtilsAdapter(  # pylint: disable=too-few-public-methods
         )
 
 
-def _resolve_encryption_key(app_config: dict[str, Any]) -> str:
+def _resolve_encryption_key(app_config: dict[str, Any]) -> str:  # type: ignore[no-redef]
     """
     Resolve the key used for database field encryption.
 
@@ -168,7 +167,10 @@ class SecretsMigrator:
     def _select_columns_from_table(
         conn: Connection, column_names: list[str], table_name: str
     ) -> Row:
-        return conn.execute(f"SELECT id, {','.join(column_names)} FROM {table_name}")  # noqa: S608
+        tbl = sa_table(
+            table_name, column("id"), *(column(name) for name in column_names)
+        )
+        return conn.execute(select(tbl))
 
     def _re_encrypt_row(
         self,
@@ -213,14 +215,14 @@ class SecretsMigrator:
                 self._dialect,
             )
 
-        set_cols = ",".join(
-            [f"{name} = :{name}" for name in list(re_encrypted_columns.keys())]
-        )
         logger.info("Processing table: %s", table_name)
+        tbl = sa_table(
+            table_name,
+            column("id"),
+            *(column(name) for name in re_encrypted_columns),
+        )
         conn.execute(
-            text(f"UPDATE {table_name} SET {set_cols} WHERE id = :id"),  # noqa: S608
-            id=row["id"],
-            **re_encrypted_columns,
+            update(tbl).where(tbl.c.id == row["id"]).values(**re_encrypted_columns)
         )
 
     def run(self) -> None:
