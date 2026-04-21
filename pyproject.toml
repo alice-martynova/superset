@@ -64,6 +64,10 @@ dependencies = [
     "holidays>=0.45, <1",
     "humanize",
     "isodate",
+    # Jinja2 floor pinned to avoid sandbox-bypass CVEs (e.g. CVE-2024-22195,
+    # CVE-2024-34064, CVE-2024-56201, CVE-2024-56326, CVE-2025-27516);
+    # SandboxedEnvironment is used to render user-supplied SQL in SQL Lab.
+    "Jinja2>=3.1.6, <4",
     "jsonpath-ng>=1.6.1, <2",
     "Mako>=1.2.2",
     "markdown>=3.0",
