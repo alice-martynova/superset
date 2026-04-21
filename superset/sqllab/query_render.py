@@ -23,7 +23,7 @@ from flask_babel import gettext as __, ngettext
 from jinja2 import TemplateError
 from jinja2.meta import find_undeclared_variables
 
-from superset import is_feature_enabled
+from superset import is_feature_enabled, security_manager
 from superset.commands.sql_lab.execute import SqlQueryRender
 from superset.errors import SupersetErrorType
 from superset.sqllab.exceptions import SqlLabException
@@ -53,9 +53,20 @@ class SqlQueryRenderImpl(SqlQueryRender):
     def render(self, execution_context: SqlJsonExecutionContext) -> str:
         query_model = execution_context.query
         try:
-            sql_template_processor = self._sql_template_processor_factory(
-                database=query_model.database, query=query_model
-            )
+            if self._is_template_processing_allowed():
+                sql_template_processor = self._sql_template_processor_factory(
+                    database=query_model.database, query=query_model
+                )
+            else:
+                # Jinja2 sandbox escapes have been demonstrated in the past;
+                # restrict Jinja2 template processing in SQL Lab to admins and
+                # fall back to a no-op processor for other users so that
+                # user-supplied SQL is never passed through `env.from_string`.
+                from superset.jinja_context import NoOpTemplateProcessor
+
+                sql_template_processor = NoOpTemplateProcessor(
+                    database=query_model.database, query=query_model
+                )
 
             rendered_query = sql_template_processor.process_template(
                 query_model.sql.strip().strip(";"),
@@ -84,13 +95,25 @@ class SqlQueryRenderImpl(SqlQueryRender):
         script = SQLScript(sql, engine)
         return script.format(comments=False)
 
+    @staticmethod
+    def _is_template_processing_allowed() -> bool:
+        """
+        Jinja2 SandboxedEnvironment has a history of sandbox-escape
+        bypass CVEs that can lead to remote code execution. To reduce the
+        exposure, SQL Lab only evaluates Jinja2 templates for administrators
+        even when ``ENABLE_TEMPLATE_PROCESSING`` is enabled.
+        """
+        return is_feature_enabled("ENABLE_TEMPLATE_PROCESSING") and (
+            security_manager.is_admin()
+        )
+
     def _validate(
         self,
         execution_context: SqlJsonExecutionContext,
         rendered_query: str,
         sql_template_processor: BaseTemplateProcessor,
     ) -> None:
-        if is_feature_enabled("ENABLE_TEMPLATE_PROCESSING"):
+        if self._is_template_processing_allowed():
             sql_for_validation = self._strip_sql_comments(
                 execution_context,
                 rendered_query,
