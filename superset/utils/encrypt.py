@@ -20,8 +20,8 @@ from typing import Any, Optional
 
 from flask import Flask
 from flask_babel import lazy_gettext as _
-from sqlalchemy import text, TypeDecorator
-from sqlalchemy.engine import Connection, Dialect, Row
+from sqlalchemy import column, select, table, TypeDecorator, update
+from sqlalchemy.engine import Connection, CursorResult, Dialect, Row
 from sqlalchemy_utils import EncryptedType as SqlaEncryptedType
 
 
@@ -167,8 +167,10 @@ class SecretsMigrator:
     @staticmethod
     def _select_columns_from_table(
         conn: Connection, column_names: list[str], table_name: str
-    ) -> Row:
-        return conn.execute(f"SELECT id, {','.join(column_names)} FROM {table_name}")  # noqa: S608
+    ) -> CursorResult:
+        tbl = table(table_name, column("id"), *(column(name) for name in column_names))
+        stmt = select(tbl.c.id, *(tbl.c[name] for name in column_names))
+        return conn.execute(stmt)
 
     def _re_encrypt_row(
         self,
@@ -213,15 +215,16 @@ class SecretsMigrator:
                 self._dialect,
             )
 
-        set_cols = ",".join(
-            [f"{name} = :{name}" for name in list(re_encrypted_columns.keys())]
-        )
         logger.info("Processing table: %s", table_name)
-        conn.execute(
-            text(f"UPDATE {table_name} SET {set_cols} WHERE id = :id"),  # noqa: S608
-            id=row["id"],
-            **re_encrypted_columns,
+        tbl = table(
+            table_name,
+            column("id"),
+            *(column(name) for name in re_encrypted_columns),
         )
+        stmt = (
+            update(tbl).where(tbl.c.id == row["id"]).values(**re_encrypted_columns)
+        )
+        conn.execute(stmt)
 
     def run(self) -> None:
         encrypted_meta_info = self.discover_encrypted_fields()
