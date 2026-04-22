@@ -347,11 +347,17 @@ class RedshiftEngineSpec(BasicParametersMixin, PostgresBaseEngineSpec):
         :return: True if query cancelled successfully, False otherwise
         """
         try:
-            logger.info("Killing Redshift PID:%s", str(cancel_query_id))
+            pid = int(cancel_query_id)
+        except (TypeError, ValueError):
+            return False
+
+        try:
+            logger.info("Killing Redshift PID:%s", str(pid))
             cursor.execute(
-                "SELECT pg_cancel_backend(procpid) "  # noqa: S608
+                "SELECT pg_cancel_backend(procpid) "
                 "FROM pg_stat_activity "
-                f"WHERE procpid='{cancel_query_id}'"
+                "WHERE procpid = %s",
+                (pid,),
             )
             cursor.close()
         except Exception:  # pylint: disable=broad-except
