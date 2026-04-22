@@ -387,9 +387,18 @@ FLASK_USE_RELOAD = True
 # to the page to see the call stack.
 PROFILING = False
 
-# Superset allows server-side python stacktraces to be surfaced to the
-# user when this feature is on. This may have security implications
-# and it's more secure to turn it off in production settings.
+# Superset allows server-side python stacktraces to be surfaced in HTTP
+# error responses when this feature is on. Even with this flag enabled,
+# full tracebacks are ONLY returned to users with the admin role; all
+# other users (including anonymous users) receive a generic error message
+# so that internal file paths, installed library versions, and SQL
+# fragments are not disclosed.
+#
+# SECURITY WARNING: This setting SHOULD NEVER be enabled in any environment
+# that is reachable by untrusted users (production, public staging, demo
+# deployments, etc.). Leave it set to False and rely on server-side logs
+# for debugging. Only enable it on fully isolated developer machines where
+# every user is already trusted to see internal implementation details.
 SHOW_STACKTRACE = False
 
 # Use all X-Forwarded headers when ENABLE_PROXY_FIX is True.
