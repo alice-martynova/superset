@@ -33,12 +33,13 @@ import pandas as pd
 from flask import current_app as app
 from flask_babel import gettext as __, lazy_gettext as _
 from packaging.version import Version
-from sqlalchemy import Column, literal_column, types
+from sqlalchemy import and_, Column, column as sa_column, literal_column, types
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.engine.result import Row as ResultRow
 from sqlalchemy.engine.url import URL
 from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.sql.elements import quoted_name
 from sqlalchemy.sql.expression import ColumnClause, Select
 
 from superset import cache_manager, db, is_feature_enabled
@@ -491,10 +492,22 @@ class PrestoBaseEngineSpec(BaseEngineSpec, metaclass=ABCMeta):
 
         where_clause = ""
         if filters:
-            l = []  # noqa: E741
-            for field, value in filters.items():
-                l.append(f"{field} = '{value}'")
-            where_clause = "WHERE " + " AND ".join(l)
+            # Build the WHERE clause using SQLAlchemy's expression API so field
+            # identifiers and values are safely quoted/escaped by the dialect
+            # rather than interpolated via f-string. Values become literal bind
+            # parameters that are rendered through the dialect's literal
+            # processors, and field names are wrapped in ``quoted_name`` to be
+            # quoted as identifiers.
+            conditions = [
+                sa_column(quoted_name(field, quote=True)) == value
+                for field, value in filters.items()
+            ]
+            where_clause = "WHERE " + str(
+                and_(*conditions).compile(
+                    dialect=database.get_dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+            )
 
         # Partition select syntax changed in v0.199, so check here.
         # Default to the new syntax if version is unset.
