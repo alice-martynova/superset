@@ -61,6 +61,25 @@ EXAMPLE_GSHEETS_URL = (
 
 SYNTAX_ERROR_REGEX = re.compile('SQLError: near "(?P<server_error>.*?)": syntax error')
 
+# Strict allowlist for Google Sheets URLs used as table identifiers. Only URLs
+# that match this pattern are safe to interpolate into SQL because the
+# shillelagh gsheets adapter expects the sheet URL as the quoted table name and
+# does not support parameter binding for identifiers.
+GSHEETS_URL_PATTERN = re.compile(
+    r"^https://docs\.google\.com/spreadsheets/d/[A-Za-z0-9_-]+"
+    r"(?:/[A-Za-z0-9_\-./]*)?"
+    r"(?:\?[A-Za-z0-9_\-.=&]*)?"
+    r"(?:#[A-Za-z0-9_\-.=&]*)?$"
+)
+
+
+def _is_valid_gsheets_url(value: str) -> bool:
+    """
+    Return True if ``value`` is a Google Sheets URL safe to interpolate into SQL.
+    """
+    return bool(GSHEETS_URL_PATTERN.match(value))
+
+
 ma_plugin = MarshmallowPlugin()
 
 
@@ -288,12 +307,15 @@ class GSheetsEngineSpec(ShillelaghEngineSpec):
         database: Database,
         table: Table,
     ) -> dict[str, Any]:
+        if not _is_valid_gsheets_url(table.table):
+            return {"metadata": {}}
+
         with database.get_raw_connection(
             catalog=table.catalog,
             schema=table.schema,
         ) as conn:
             cursor = conn.cursor()
-            cursor.execute(f'SELECT GET_METADATA("{table.table}")')
+            cursor.execute(f'SELECT GET_METADATA("{table.table}")')  # noqa: S608
             results = cursor.fetchone()[0]
         try:
             metadata = json.loads(results)
@@ -429,23 +451,27 @@ class GSheetsEngineSpec(ShillelaghEngineSpec):
             if is_oauth2_conn:
                 continue
 
+            url_error = SupersetError(
+                message=(
+                    "The URL could not be identified. Please check for typos "
+                    "and make sure that ‘Type of Google Sheets allowed’ "
+                    "selection matches the input."
+                ),
+                error_type=SupersetErrorType.TABLE_DOES_NOT_EXIST_ERROR,
+                level=ErrorLevel.WARNING,
+                extra={"catalog": {"idx": idx, "url": True}},
+            )
+
+            if not _is_valid_gsheets_url(url):
+                errors.append(url_error)
+                idx += 1
+                continue
+
             try:
-                url = url.replace('"', '""')
                 results = conn.execute(f'SELECT * FROM "{url}" LIMIT 1')  # noqa: S608
                 results.fetchall()
             except Exception:  # pylint: disable=broad-except
-                errors.append(
-                    SupersetError(
-                        message=(
-                            "The URL could not be identified. Please check for typos "
-                            "and make sure that ‘Type of Google Sheets allowed’ "
-                            "selection matches the input."
-                        ),
-                        error_type=SupersetErrorType.TABLE_DOES_NOT_EXIST_ERROR,
-                        level=ErrorLevel.WARNING,
-                        extra={"catalog": {"idx": idx, "url": True}},
-                    ),
-                )
+                errors.append(url_error)
             idx += 1
         return errors
 
