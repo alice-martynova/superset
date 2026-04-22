@@ -34,6 +34,7 @@ from sqlalchemy import Column, text, types
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.engine.url import URL
+from sqlalchemy.sql.elements import quoted_name
 from sqlalchemy.sql.expression import ColumnClause, Select
 
 from superset import db
@@ -51,6 +52,31 @@ if TYPE_CHECKING:
     from superset.models.core import Database
 
 logger = logging.getLogger(__name__)
+
+# Hive identifiers (database/schema/table names) must match this pattern to be
+# safe for interpolation into DDL. Anything outside this allowlist is rejected
+# rather than quoted, since backtick-escaping inside Hive identifiers is not
+# universally supported.
+_HIVE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _quote_hive_table(table: Table) -> quoted_name:
+    """
+    Return a safely quoted, fully-qualified Hive table identifier.
+
+    Each component of the identifier is validated against a strict allowlist
+    and wrapped in backticks (Hive's identifier quote character). The result
+    is returned as a :class:`sqlalchemy.sql.elements.quoted_name` so that any
+    downstream SQLAlchemy processing preserves the quoting verbatim.
+    """
+    parts: list[str] = []
+    for component in (table.catalog, table.schema, table.table):
+        if component is None:
+            continue
+        if not _HIVE_IDENTIFIER_RE.match(component):
+            raise SupersetException(f"Invalid Hive identifier: {component!r}")
+        parts.append(f"`{component}`")
+    return quoted_name(".".join(parts), quote=False)
 
 
 def upload_to_s3(filename: str, upload_prefix: str, table: Table) -> str:
@@ -223,7 +249,7 @@ class HiveEngineSpec(PrestoEngineSpec):
                 catalog=table.catalog,
                 schema=table.schema,
             ) as engine:
-                engine.execute(f"DROP TABLE IF EXISTS {str(table)}")
+                engine.execute(f"DROP TABLE IF EXISTS {_quote_hive_table(table)}")
 
         def _get_hive_type(dtype: np.dtype[Any]) -> str:
             hive_type_by_dtype = {
