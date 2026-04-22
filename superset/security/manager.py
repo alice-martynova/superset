@@ -3104,8 +3104,7 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
             audience = audience()
         return audience
 
-    @staticmethod
-    def validate_guest_token_resources(resources: GuestTokenResources) -> None:
+    def validate_guest_token_resources(self, resources: GuestTokenResources) -> None:
         # pylint: disable=import-outside-toplevel
         from superset.commands.dashboard.embedded.exceptions import (
             EmbeddedDashboardNotFoundError,
@@ -3124,6 +3123,13 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
                     embedded = EmbeddedDashboardDAO.find_by_id(str(resource["id"]))
                     if not embedded:
                         raise EmbeddedDashboardNotFoundError()
+                    dashboard = embedded.dashboard
+                # Ensure the requesting user is authorized to read the target
+                # dashboard before issuing a guest token for it. Without this
+                # check, any user with `grant_guest_token` could enumerate
+                # dashboard IDs and mint valid tokens for dashboards they
+                # cannot otherwise access.
+                self.raise_for_access(dashboard=dashboard)
 
     def create_guest_access_token(
         self,
