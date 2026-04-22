@@ -129,7 +129,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_error_msg() -> str:
-    if app.config.get("SHOW_STACKTRACE"):
+    if app.config.get("SHOW_STACKTRACE") and _current_user_is_admin():
         error_msg = traceback.format_exc()
     else:
         error_msg = "FATAL ERROR \n"
@@ -138,6 +138,21 @@ def get_error_msg() -> str:
             "configuration setting to enable it"
         )
     return error_msg
+
+
+def _current_user_is_admin() -> bool:
+    """
+    Return True only when the current request is authenticated as an admin user.
+
+    The check is intentionally conservative: any failure to resolve the user
+    (missing request context, anonymous user, security manager not ready) is
+    treated as "not admin" so that sensitive tracebacks are never leaked to
+    unauthenticated or low-privilege callers.
+    """
+    try:
+        return bool(security_manager.is_admin())
+    except Exception:  # pylint: disable=broad-except
+        return False
 
 
 def json_success(json_msg: str, status: int = 200) -> FlaskResponse:
