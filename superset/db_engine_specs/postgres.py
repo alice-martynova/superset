@@ -827,10 +827,14 @@ WHERE datistemplate = false;
             if an error occurred
         """
         try:
+            pid = int(cancel_query_id)
+        except (TypeError, ValueError):
+            return False
+
+        try:
             cursor.execute(
-                "SELECT pg_terminate_backend(pid) "  # noqa: S608
-                "FROM pg_stat_activity "
-                f"WHERE pid='{cancel_query_id}'"
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid = %s",
+                (pid,),
             )
         except Exception:  # pylint: disable=broad-except
             return False

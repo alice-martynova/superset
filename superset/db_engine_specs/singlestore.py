@@ -578,7 +578,16 @@ class SingleStoreSpec(BasicParametersMixin, BaseEngineSpec):
         :return: True if query cancelled successfully, False otherwise
         """
         try:
-            cursor.execute(f"KILL CONNECTION {cancel_query_id}")
+            parts = cancel_query_id.split()
+            if len(parts) != 2:
+                return False
+            connection_id = int(parts[0])
+            aggregator_id = int(parts[1])
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+        try:
+            cursor.execute(f"KILL CONNECTION {connection_id} {aggregator_id}")
         except Exception:  # pylint: disable=broad-except
             return False
 
